@@ -8,6 +8,15 @@ import threading
 import json
 import copy
 
+torch_device = "mtgpu"
+# torch_device = "cuda"
+torch_device = "cpu"
+if torch_device == "mtgpu":
+    import musa_torch_extension
+    a = torch.tensor([1])
+    a.to("mtgpu")
+    print("-------")
+
 def py_cpu_nms(dets, thresh):
     """ Pure Python NMS baseline.
         Copyright (c) 2015 Microsoft
@@ -136,6 +145,19 @@ class RetinaFaceDetector():
         else:
             return []
 
+
+def save_benchmark(timecost, modulename, torch_device="cpu"):
+    cost_np = np.array(timecost)
+    print("==>> cost_np.shape: ", cost_np.shape)
+    print("==>> type(cost_np): ", type(cost_np))
+    import csv
+    csvFile = open(torch_device + "_analyze.csv", 'w', newline='')
+    writer = csv.writer(csvFile)
+    writer.writerow([torch_device, "mean", "std", "min", "max", "count"])
+    for i, name in enumerate(modulename):
+        writer.writerow([name, cost_np[:,i].mean(), cost_np[:,i].std(), cost_np[:,i].min(), cost_np[:,i].max(), cost_np[:,i].shape[0]])
+    np.savetxt(torch_device + "_timecost.csv", cost_np, delimiter=",")
+
 if __name__== "__main__":
     retina = RetinaFaceDetector(top_k=40, min_conf=0.2)
     im = cv2.imread(sys.argv[1], cv2.IMREAD_COLOR)
@@ -145,6 +167,22 @@ if __name__== "__main__":
     print(f"Runtime: {end:.3f}ms")
     for (x,y,w,h) in faces:
         im = cv2.rectangle(im, (int(x),int(y)), (int(x+w),int(y+w)), (0,0,255), 1)
-    cv2.imshow("Frame", im)
-    while cv2.waitKey(0) & 0xff != ord('q'):
-        ""
+    cv2.imwrite("temp.png", im)
+
+    # warm up
+    for i in range(10):
+        faces = retina.detect_retina(im)
+
+    timecost = []
+    for i in range(100):
+        t1 = time.time()
+        faces = retina.detect_retina(im)
+        t2 = time.time()
+        timecost.append([(t2 - t1) * 1000.0])
+        # print("blazeface timecost:", (t2 - t1) * 1000.0, 'ms')
+
+    save_benchmark(timecost, ["RetinaFace"], "cpu")
+
+    #cv2.imshow("Frame", im)
+    #while cv2.waitKey(0) & 0xff != ord('q'):
+    #    ""
